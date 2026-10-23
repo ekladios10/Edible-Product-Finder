@@ -1,45 +1,20 @@
-
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import "./App.css";
-
-type Option = {
-  id: string;
-  name: string;
-};
-
-type Product = {
-  id: string;
-  product_code: number;
-  name: string;
-  category_name?: string;
-  starting_price: number | string;
-  recommended_variant_size?: string;
-  recommended_variant_price?: number | string;
-  recommended_servings_min?: number | null;
-  recommended_servings_max?: number | null;
-  recommended_photo_url?: string | null;
-};
-
-type Variant = {
-  id: string;
-  product_id: string;
-  size_name: string;
-  price: number | string;
-  servings_min: number | null;
-  servings_max: number | null;
-  photo_url?: string | null;
-};
-
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-
-  return (await response.json()) as T;
-}
+import ChatWidget from "./ChatWidget";
+import type {
+  Option,
+  Product,
+  ProductFilters,
+  Variant,
+} from "./Types.interface";
+import {
+  clearFilters,
+  findProducts,
+  getCategories,
+  getOccasions,
+  viewVariants,
+} from "./productService";
 
 function formatPrice(
   value: number | string | undefined | null
@@ -106,50 +81,22 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function searchProducts(
-    selectedOccasion: string,
-    selectedCategory: string,
-    selectedBudget: string,
-    selectedPartySize: string
-  ) {
-    const params = new URLSearchParams();
-
-    if (selectedOccasion) {
-      params.set("occasionId", selectedOccasion);
-    }
-
-    if (selectedCategory) {
-      params.set("categoryId", selectedCategory);
-    }
-
-    if (selectedBudget) {
-      params.set("budget", selectedBudget);
-    }
-
-    if (selectedPartySize) {
-      params.set("partySize", selectedPartySize);
-    }
-
-    const query = params.toString();
-    const url = query
-      ? `/api/products/search?${query}`
-      : "/api/products/search";
-
+  async function searchProducts(filters: ProductFilters) {
     setLoading(true);
     setError("");
 
-    // A new search has new filters, so close expanded rows and
-    // discard the cached variants from the previous search.
+    // A new search has new filters, so close expanded rows and discard
+    // variants cached for the previous search.
     setExpandedProducts(new Set());
     setVariantsByProduct({});
     setLoadingVariants(new Set());
     setVariantErrors({});
 
-    setAppliedBudget(selectedBudget);
-    setAppliedPartySize(selectedPartySize);
+    setAppliedBudget(filters.budget);
+    setAppliedPartySize(filters.partySize);
 
     try {
-      const results = await getJson<Product[]>(url);
+      const results = await findProducts(filters);
       setProducts(results);
     } catch (problem) {
       setError(
@@ -175,23 +122,11 @@ function App() {
       return next;
     });
 
-    const params = new URLSearchParams();
-
-    if (appliedBudget) {
-      params.set("budget", appliedBudget);
-    }
-
-    if (appliedPartySize) {
-      params.set("partySize", appliedPartySize);
-    }
-
-    const query = params.toString();
-    const url =
-      `/api/products/${encodeURIComponent(productId)}/variants` +
-      (query ? `?${query}` : "");
-
     try {
-      const variants = await getJson<Variant[]>(url);
+      const variants = await viewVariants(productId, {
+        budget: appliedBudget,
+        partySize: appliedPartySize,
+      });
 
       setVariantsByProduct((previous) => ({
         ...previous,
@@ -252,9 +187,9 @@ function App() {
       try {
         const [categoryData, occasionData, productData] =
           await Promise.all([
-            getJson<Option[]>("/api/categories"),
-            getJson<Option[]>("/api/occasions"),
-            getJson<Product[]>("/api/products/search"),
+            getCategories(),
+            getOccasions(),
+            findProducts(clearFilters()),
           ]);
 
         setCategories(categoryData);
@@ -293,16 +228,23 @@ function App() {
       return;
     }
 
-    void searchProducts(occasionId, categoryId, budget, partySize);
+    void searchProducts({
+      occasionId,
+      categoryId,
+      budget,
+      partySize,
+    });
   }
 
-  function clearFilters() {
-    setOccasionId("");
-    setCategoryId("");
-    setBudget("");
-    setPartySize("");
+  function handleClearFilters() {
+    const filters = clearFilters();
 
-    void searchProducts("", "", "", "");
+    setOccasionId(filters.occasionId);
+    setCategoryId(filters.categoryId);
+    setBudget(filters.budget);
+    setPartySize(filters.partySize);
+
+    void searchProducts(filters);
   }
 
   return (
@@ -382,7 +324,7 @@ function App() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={clearFilters}
+                onClick={handleClearFilters}
               >
                 Clear filters
               </button>
@@ -538,6 +480,7 @@ function App() {
           </div>
         </section>
       </main>
+      <ChatWidget />
     </div>
   );
 }
